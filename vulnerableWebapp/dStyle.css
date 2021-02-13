@@ -1,0 +1,48 @@
+BODY {
+	background-color: #FFFFFF;
+	/* font-family: verdana; */
+}
+
+H1 {
+	font-size: 16pt;
+	/* font-weight: normal; */
+	padding: 0px 3px 3px 3px;
+}
+
+
+TABLE#tblLogin {
+	clear: none;
+	float: left;
+}
+
+IMG#softshoe {
+	margin-left: 20px;
+}
+
+DIV#pnlLogin {
+	margin-left: 10px;
+}
+
+H1, TABLE#tblLogin {
+	background-color: #DDDDDD;
+	border: 1px solid #999999;
+}
+
+H5 {
+	font-weight: normal;
+}
+
+
+INPUT#txtLogin, INPUT#txtPassword {
+    background-color: #FFFFFF;
+    border: 1px solid #999999;
+    color: #000000;
+    padding-left: 2px;
+}
+
+
+INPUT#txtLogin:focus, INPUT#txtPassword:focus {
+    border-color: #333333;
+    /*background-color: #FFFFC0;*/
+    background-color: #DDFFDD	;
+}

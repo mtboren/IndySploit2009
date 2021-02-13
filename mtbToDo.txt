@@ -1,0 +1,141 @@
+## for VM IP addressing/naming
+## jank:  set this registry value's data (on the Powerhshell host) to $true for console prompting instead of a pop-up
+# the reg path
+$strRegItemPath = "HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds"
+# the property name
+$strRegItemPropertyName = "ConsolePrompting"
+# get the original property data (if any), so as to be able to set value back when done
+$bOrigItemPropertyData = Get-ItemProperty -Path $strRegItemPath -Name $strRegItemPropertyName -ErrorAction:SilentlyContinue
+# set the value to $true for now
+Set-ItemProperty -Path $strRegItemPath -Name $strRegItemPropertyName $true
+
+## get the credentials to use to connect to the host for setting up the VM networking
+Write-Host "Enter VM host credentials:"
+$credVMHostAdmin = Get-Credential root
+
+## get the credentials to use on the VMs for setting up the VM guest networking
+Write-Host "Enter VM guest admin credentials:"
+$credLocalVMAdmin = Get-Credential administrator
+
+## the time in seconds to wait for a response from the VMware Tools
+$intSecsToWait = 300
+
+## for the range of WinXP guests (adjust as necessary)
+100..125 | %{
+	$intLastOctet = $_
+	## the name of the VM
+	$strVMName = "winxp$intLastOctet"
+	## what the static IP shall be
+	$strStaticIP = "10.0.0.$intLastOctet"
+	## the current name within the OS of the guest
+	$oVM = Get-VM $strVMName
+	$strVMGuestHostname_Orig = $oVM.Guest.HostName
+
+	## get the guest's NIC
+	$oVMGuestNetworkInterface = Get-VMGuestNetworkInterface -HostCredential $credVMHostAdmin -GuestCredential $credLocalVMAdmin -VM $strVMName
+	## set the networking parameters
+	Set-VMGuestNetworkInterface -VmGuestNetworkInterface $oVMGuestNetworkInterface -IPPolicy Static -Gateway 10.0.0.1 -Netmask 255.255.255.0 -Ip $strStaticIP -ToolsWaitSecs $intSecsToWait -HostCredential $credVMHostAdmin -GuestCredential $credLocalVMAdmin
+
+	## get a WMI obj for the guest with which to rename the guest
+	$wmiThisVMGuest = Get-WMIObject -Class Win32_ComputerSystem -Computer $strVMGuestHostname_Orig -Credential $credLocalVMAdmin
+	## change the guest OS's hostname
+	$wmiThisVMGuest.Rename($strVMName)
+
+	## for SQL Express IP reg update:
+	# HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL.1\MSSQLServer\SuperSocketNetLib\Tcp\IP1
+	#	"IpAddress" = <VM's IP>
+
+	### open the remote registry at the given key
+	#$oBaseRegKey = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $strVMGuestHostname_Orig)
+	### base subkey to work with, relative to the base key specified above
+	#$strBaseSubKeyRelPath = "SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL.1\MSSQLServer\SuperSocketNetLib\Tcp\IP1"
+	### open base subkey (adding an escaping backslash to each backslash in the path)
+	#$oSQLIPBaseKey = $oBaseRegKey.OpenSubKey($($strBaseSubKeyRelPath.Replace("\", "\\")))
+	### get the values at given key
+	#$oSQLIPBaseKey.GetValueNames()
+	### print out the "IP Address" value's data
+	#$oSQLIPBaseKey.GetValue("IpAddress")
+	### set the "IP Address" value's data
+	#$oSQLIPBaseKey.SetValue("IpAddress", $strStaticIP)
+	## OR, w/ reg.exe
+	## <INSERT CODE HERE>
+
+	## reboot VM gracefully (may have to do manually here if pointing PowerCLI at free-licensed ESXi host; all good if pointing at vCenter)
+	#Restart-VMGuest -VM $oVM
+	#Restart-Computer -Credential $credLocalVMAdmin -Force $strVMGuestHostname_Orig
+} ## end foreach
+
+## return reg value's data to the original state
+if ($bOrigItemPropertyData -eq $null) {
+	## if the property did not exist before, remove it
+	Remove-ItemProperty -Path $strRegItemPath -Name $strRegItemPropertyName
+} ## end if
+else {
+	## else, set it back to the orig data
+	Set-ItemProperty -Path $strRegItemPath -Name $strRegItemPropertyName $bOrigItemPropertyData.$strRegItemPropertyName
+} ## end else
+
+### end configuring guest VMs
+
+
+
+
+## query the filesystem
+vmkfstools --server 10.0.0.7 --username root --queryfs /vmfs/volumes/daterstore01
+
+## extend a virtual disk to the new size specified
+#vmkfstools --server 10.0.0.7 --username root --extendvirtualdisk 10G /vmfs/volumes/daterstore01/vcenter4/vcenter4.vmdk
+vmkfstools --server 10.0.0.7 --username root -X 10G /vmfs/volumes/daterstore01/vcenter4/vcenter4.vmdk
+
+## experimental:  shrinkdisk
+vmkfstools --server 10.0.0.7 --username root --shrinkdisk /vmfs/volumes/daterstore01/<vmdkFileName>
+
+
+## not tested
+## increase harddisk size
+$tmpVM0 = Get-VM vcenter4_movedtodesxi02
+$tmpHD0 = $tmpVM0.HardDisks[0]
+#may also need to include some "-GuestCredential" action here, and I assume that the guest must be on (scripts to expand partition use diskpart.exe in the guest)
+Set-HardDisk -HardDisk $tmpHD0 -CapacityKB 10485760 -Partition 0 -WhatIf
+
+
+
+##	Needs vCenter?  does not work against a host, it seems -- need to test
+## clone a VM
+$tmpVM0 = Get-VM winxpsp2_template
+$tmpVM1 = New-VM -Name winxpsp2Clone -VM $tmpVM0 -DiskStorageFormat Thin -Datastore "daterstore01" -VMHost 10.0.0.9 -WhatIf
+
+## deploy from template
+$tmpVM_UbuntuTemplate = Get-Template ubuntu7_template
+New-VM -Template $tmpVM_UbuntuTemplate -Name ubuntu203 -DiskStorageFormat Thin -Datastore "daterstore01" -VMHost 10.0.0.7 -Location IndySploit
+## deploy several from template
+4..9 | %{New-VM -Template $tmpVM_UbuntuTemplate -Name ubuntu20${_} -DiskStorageFormat Thin -Datastore "daterstore01" -VMHost 10.0.0.7 -Location IndySploit -RunAsync}
+
+$tmpVM_WinXPTemplate = Get-Template winxpsp2_template
+0..4 | %{New-VM -Template $tmpVM_WinXPTemplate -Name winxp10${_} -DiskStorageFormat Thin -Datastore "daterstore01" -VMHost 10.0.0.7 -Location IndySploit -RunAsync}
+5..9 | %{New-VM -Template $tmpVM_WinXPTemplate -Name winxp10${_} -DiskStorageFormat Thin -Datastore "daterstore01" -VMHost 10.0.0.7 -Location IndySploit -RunAsync}
+
+
+##	Needs vCenter?  does not work against a host, it seems -- need to test
+## change a disk format (thick/thin) -- only works when changing daterstore, per the help
+$tmpVM0 = Get-VM winxpsp2_template
+$tmpHD0 = $tmpVM0.HardDisks[0]
+$tmpDStore = Get-Datastore datastore-IDE
+Set-HardDisk -HardDisk $tmpHD0 -Datastore $tmpDStore -StorageFormat thin
+
+
+#upon connecting to another VMHost:
+#Working with multiple default servers?
+#
+#    Select [Y] if you want to work with more than one default servers. In this case, every time when you connect to a
+#different server using Connect-VIServer, the new server connection is stored in an array variable together with the
+#previously connected servers. When you run a cmdlet and the target servers cannot be determined from the specified
+#parameters, the cmdlet runs against all servers stored in the array variable.
+#    Select [N] if you want to work with a single default server. In this case, when you run a cmdlet and the target
+#servers cannot be determined from the specified parameters, the cmdlet runs against the last connected server.
+#    You can change your preference at any time using  the DefaultServerMode parameter of Set-PowerCLIConfiguration.
+#[Y] Yes  [N] No  [S] Suspend  [?] Help (default is "Y"):
+
+## then, to change the settings:
+Set-PowerCLIConfiguration -DefaultVIServerMode single -ProxyPolicy UseSystemProxy
+Set-PowerCLIConfiguration -DefaultVIServerMode multiple -ProxyPolicy UseSystemProxy

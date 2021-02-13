@@ -1,0 +1,35 @@
+;SetupMgrTag
+[Unattended]
+    OemSkipEula=Yes
+    InstallFilesPath=C:\sysprep\i386
+    TargetPath=\WINDOWS
+
+[GuiUnattended]
+    AdminPassword="password"
+    EncryptedAdminPassword=No
+    AutoLogon=Yes
+    AutoLogonCount=1
+    TimeZone=35
+    OemSkipWelcome=1
+    OEMSkipRegional=1
+
+[UserData]
+	; ProductKey from the NIST XP img
+    ProductKey=JW6WY-TR7D6-XPRBB-BRHTF-7JC7G
+    FullName="KYSploit"
+    OrgName="IndySec"
+    ComputerName=*
+
+[Identification]
+    JoinWorkgroup=indysecWkgrp
+
+[Networking]
+    InstallDefaultComponents=Yes
+
+[Branding]
+    BrandIEUsingUnattended=Yes
+
+[Proxy]
+    Proxy_Enable=0
+    Use_Same_Proxy=0
+
